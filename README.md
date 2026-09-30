@@ -1,6 +1,6 @@
 # Gingersnap
 
-[image](screenshot.png)
+![image](screenshot.png)
 
 **A minimal Strudel subset for REAPER.**
 
