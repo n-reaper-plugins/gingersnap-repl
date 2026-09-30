@@ -1,4 +1,5 @@
 -- @description Gingersnap: minimal Strudel subset for REAPER - render patterns into the project (audio items and/or MIDI)
+-- @author _n_plugins
 -- @version 0.1.0
 -- @about
 --   Gingersnap is a minimal Strudel subset for REAPER (not affiliated with the Strudel project).
