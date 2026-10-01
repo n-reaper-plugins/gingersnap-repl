@@ -1,4 +1,7 @@
-# Gingersnap v0.1.0 – Strudel compatibility coverage
+# Gingersnap v0.2.0 – Strudel compatibility coverage
+
+Reference: **Strudel 1.2.6** (`@strudel/core`, `@strudel/mini`, `@strudel/tonal`). A function is only added when it exists there; everything
+that is implemented is diffed against the real thing (`strudel-lua/test/test_reference.lua`).
 
 # 1. Available features
 
@@ -23,16 +26,29 @@
 | Methods: structure | `inside outside zoom linger compress fastGap focus repeatCycles chunk chunkBack` | |
 | Methods: effects-like | `jux juxBy hurry echo echoWith stut` | |
 | Methods: combine | `stack cat fastcat` | |
-| Controls (meaningful) | `s sound n note gain velocity(vel) pan legato clip speed channel` | |
+| Methods: tonal | `scale scaleTranspose scaleTrans strans transpose trans` | `scale("C:major")`, all of tonal's 92 scale types; `n(...)` is turned into `note(...)`; `transpose` takes semitones or intervals (`"5P"`) |
+| Methods: rhythm 0.2 | `swing swingBy brak press pressBy within plyWith euclidLegato euclidLegatoRot ribbon rib reset restart shuffle scramble` | |
+| Methods: sample slicing | `chop striate slice splice bite loopAt fit` + global `squeeze` | `loopAt` / `splice` / `fit` follow the REAPER tempo map |
+| Methods: lookup | `pick pickmod pickF pickRestart pickReset pickOut inhabit inhabitmod pickSqueeze` | arrays `[a, b]` and objects `{ a: x, b: y }` |
+| Constructors 0.2 | `arrange stepcat polymeter polyrhythm pm pr choose chooseIn chooseOut chooseWith chooseInWith chooseCycles randcat wchoose wchooseCycles wrandcat perlin berlin` | |
+| Controls (meaningful) | `s sound n note gain velocity(vel) postgain pan legato clip speed channel midichan bank begin end loop cut unit octave(oct) ccn ccv progNum midibend` | |
 | Controls (ignored, warning) | ~70 synth/sampler controls (`lpf room delay attack vowel orbit` …) | accepted, no effect |
 | Ignored helpers | `.scope() .pianoroll()`, `setcps`, `setcpm`, `samples(...)` | no effect |
 | Audio output | `s("x")` → item from folder `x`; `:N` / `.n(N)` picks file (sorted, wraps) | one folder level |
 | Audio output | `gain`, `velocity` → item volume | |
-| Audio output | `pan` → take pan; `speed` → playrate + length | negative speed unsupported |
+| Audio output | `pan` → take pan; `speed` → playrate + length | negative speed = reversed take (REAPER action, not verified in REAPER) |
+| Audio output | `note(...)` repitches the sample: rate = 2^((note − root) / 12) | root note is a setting, default 36 (= Strudel) |
+| Audio output | `begin` / `end` → start offset + length; `loop` → looped item; `cut(n)` → earlier items of the group stop at the next onset | `loop` loops the whole file |
+| Audio output | `unit("c")` (used by `loopAt`, `splice`, `fit`) → speed counts cycles, from the current tempo | |
+| Audio output | `bank("X")` → folder `X_<sound>` first, then `<sound>` | |
+| Audio output | `postgain` → multiplies the item volume | |
+| Host | optional "Standard drum aliases" (`sd rim lt mt ht cr rd cb perc`) | global setting, off by default; GM drums + folder lookup (`sd` ⇄ `sn`/`snare` …) |
 | Audio output | `legato`/`clip` → item cut + short fade | |
 | MIDI output | `s("bd")` → GM drum note, channel 10 | bd 36, sn 38, hh 42, oh 46, cp 39 … |
 | MIDI output | `note()` / `n()` → MIDI notes (`c3` = 48) | |
-| MIDI output | `velocity`/`gain` → velocity; `legato` → note length | |
+| MIDI output | `velocity`/`gain`/`postgain` → velocity; `legato` → note length | |
+| MIDI output | `octave` / `oct` shifts the notes (`o` is Strudel's `orbit`: ignored); `midichan` / `channel` pick the channel | |
+| MIDI output | `ccn` + `ccv` (0–1 → 0–127), `progNum`, `midibend` (−1…1) → controller events in the same MIDI item | events without a note are fine |
 | Host | one cycle = N quarter notes (default 4), follows REAPER tempo map | `setcpm` ignored |
 | Host | tracks under collapsed GINGERSNAP folder; voice tracks on overlap | `a (2)` |
 | Host | keyed diff re-render; hand-edited items survive | |
@@ -41,42 +57,32 @@
 | Host | pattern item = empty item, code in notes | |
 | Safety | parsed, never executed; 20 000 event limit | |
 
-# 2. Unsupported vs. current Strudel
+# 2. Not (yet) supported vs. Strudel 1.2.6
 
-"Listed" = explicitly named as not implemented in the README. "Omitted" = not in the supported list, so treated as unsupported (verify with `tools`/`one.lua`).
+"Listed" = named as not implemented in the README. "Omitted" = not in the supported list. Things that do **not exist in Strudel 1.2.6**
+are not added to Gingersnap either (marked "not in Strudel").
 
 | Category | Strudel feature | Status |
 |---|---|---|
-| Tonal | `scale`, `scaleTranspose`/`scaleTrans` | Listed (`scale`) / Omitted |
-| Tonal | `chord`, `voicing`, `rootNotes`, `anchor`, `mode`, `dict` | Listed (`voicing`/chords) / Omitted |
-| Tonal | `arp`, `arpWith` | Listed (`arp`) / Omitted |
-| Tonal | `transpose`/`trans`, `octave`/`o`, `freq`/`hz` | Omitted |
-| Tonal | pitching samples by `note` (`note("c e").s("piano")`) | Listed (known limit) |
-| Sample slicing | `chop`, `striate` | Listed (`chop`) / Omitted |
-| Sample slicing | `slice`, `splice`, `bite`, `squeeze` | Listed (`slice splice bite`) / Omitted |
-| Sample slicing | `begin`, `end`, `loop`, `loopAt`, `fit`, `cut`, `unit` | Omitted |
-| Sample slicing | negative `speed` (reverse) | Listed (known limit) |
-| Sample banks | `bank()` / `RolandTR909_bd` naming, default Strudel drum names (`sd rim lt mt ht cr rd cb`) | Omitted |
+| Tonal | `chord`, `voicing`, `rootNotes`, `anchor`, `mode`, `dict` | planned for 0.2.5 |
+| Tonal | `arp`, `arpWith` | planned for 0.2.5 (needs chords) |
+| Tonal | `freq`/`hz` | Omitted |
+| Sample slicing | `loopBegin`, `loopEnd`, `loopAtCps`, `scrub`, `unit` other than `"c"` | Omitted |
 | Sample banks | `samples('github:…')`, `samples({...})` | Ignored (no loading) |
 | Sample banks | nested sample folders | Listed (one level only) |
-| Arrangement | `arrange`, `pick`, `pickF`, `pickRestart`, `pickReset`, `inhabit` | Listed (`arrange`, `pick*`) / Omitted |
-| Arrangement | `polymeter`/`polyrhythm` function forms, `ncat`, `stepcat` | Omitted |
-| Rhythm | `swing`, `swingBy`, `shuffle`, `scramble` | Listed |
-| Rhythm | `ribbon`, `rib` | Listed (`ribbon`) / Omitted |
-| Rhythm | `brak`, `press`, `pressBy`, `rolled`, `rolledBy` | Omitted |
-| Rhythm | `within`, `plyWith`, `euclidLegato`, `euclidOff`, `euclidInv` | Omitted |
-| Rhythm | `sew`, `stitch`, `reset`, `restart`, `ghost` | Omitted |
-| Random | `perlin`, `berlin` | Listed (`perlin`) / Omitted |
-| Random | `choose`, `chooseWith`, `wchoose`, `cycleChoose` | Omitted |
-| Random | non-legacy RNG | Listed (known limit) |
-| Control change | `cc`, `ccn`, `ccv`, `nrpn`, `midi()`, `progNum`, `midichan` (only `channel`) | Listed (`cc`, `nrpn`) / Omitted |
-| Synth/FX | `sound("sawtooth")` and other synth waveforms, `fm*`, `lpf/hpf/bpf`, `room`, `delay`, `crush`, `coarse`, `phaser`, `vowel`, `duck`, `orbit`, `postgain`, envelopes | Accepted, ignored |
-| Language | `register()`, JS objects `{}`, template strings `${}`, `if`, `for`, `function` | Listed (error) |
+| Arrangement | `ncat`, `stepalt`, `take`, `drop`, `expand`, `contract`, `shrink`, `grow` and the other step functions | Omitted |
+| Rhythm | `ghost` | Omitted |
+| Rhythm | `sew`, `stitch`, `rolled`, `rolledBy`, `euclidOff`, `euclidInv` | not in Strudel 1.2.6 |
+| Random | `cycleChoose` | not in Strudel 1.2.6 (it is called `chooseCycles`, which works) |
+| Random | `seed`, `withSeed`, non-legacy RNG | Listed (known limit) |
+| Control change | `cc(...)`, `pitchbend` | not in Strudel 1.2.6 (use `ccn` + `ccv`, `midibend`) |
+| Control change | `nrpnn`, `nrpv`, `sysex`, `miditouch`, `midicmd`, `midi()`, `midimap` | Omitted |
+| Synth/FX | `sound("sawtooth")` and other synth waveforms, `fm*`, `lpf/hpf/bpf`, `room`, `delay`, `crush`, `coarse`, `phaser`, `vowel`, `duck`, `orbit`, envelopes | Accepted, ignored |
+| Language | `register()`, template strings `${}`, `if`, `for`, `function` | Listed (error) |
+| Language | JS objects other than as the lookup of `pick` / `inhabit` | Omitted |
 | Language | `Math.*`, `.map`, array methods, `await` | Omitted |
 | Language | operator variants `add.out`, `add.squeeze`, `add.mix`, `add.reset` | Omitted |
 | Language | `hush`, `all()`, `.p("name")`, `.color()`, `.tag` | Omitted |
 | Input | `mouseX`, `whenKey`, MIDI input, `midin` | Omitted (n/a offline) |
 | Visual | `scope`, `pianoroll`, `punchcard`, `spiral`, `_` visual variants | Ignored |
 | Tempo | `setcpm`, `setcps`, `cpm`, `hurry` w/ tempo | `set*` ignored; tempo = REAPER |
-
-

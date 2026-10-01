@@ -3,7 +3,8 @@
 package.path = "./src/?.lua;./strudel-lua/src/?.lua;" .. package.path
 local Core = require("GSCore")
 
-local GINGERSNAP = { "strudel.fraction", "strudel.pattern", "strudel.signal", "strudel.library", "strudel.controls",
+local GINGERSNAP = { "strudel.fraction", "strudel.pattern", "strudel.signal", "strudel.library", "strudel.scales", "strudel.tonal",
+                  "strudel.slicing", "strudel.pick", "strudel.controls",
                   "strudel.mini", "strudel.lang", "strudel" }
 local MODULES = { "GSCore", "GSReaper", "GSApp", "GSUI" }
 

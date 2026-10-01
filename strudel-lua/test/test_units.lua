@@ -1,4 +1,4 @@
--- Unit tests of strudel-lua that do not need the oracle: fractions, the random generator (reference values
+-- Unit tests of strudel-lua that do not need the reference: fractions, the random generator (reference values
 -- taken from real Strudel), the language front end (errors, safety, labels, arrow functions).
 local here = (arg and arg[0] or ""):match("^(.*)/test/[^/]*$") or "."
 package.path = here .. "/src/?.lua;" .. here .. "/test/?.lua;" .. package.path
@@ -77,5 +77,33 @@ T.ok(os.clock() - t0 < 2, "deeply nested mini-notation stays fast")
 -- fraction-valued function arguments ------------------------------------------------------------------------------
 local ev = Strudel.events(run('s("a b").late(1/3)').layers[1].pattern, 0, 1)
 T.eq(tostring(ev[1].b), "1/3", "late(1/3) is exact")
+
+-- 0.2: functions that do not exist in Strudel 1.2.6 are NOT provided (clear errors, not silent no-ops) ----------------
+for _, name in ipairs({ "sew", "stitch", "rolled", "rolledBy", "euclidOff", "euclidInv", "cc", "pitchbend", "cycleChoose" }) do
+  local r, err = Strudel.run('$: s("a").' .. name .. '(1)')
+  T.ok(not r and err and err:find("unknown method"), name .. "() is not in Strudel 1.2.6: unknown method error")
+end
+
+-- 0.2: object literals only as pick / inhabit lookups; bad lookups and scales are explained ---------------------------
+local r2 = run('$: "a b".pick({a: s("x*2"), b: s("y*2")})')
+local e2 = Strudel.events(r2.layers[1].pattern, 0, 1)
+T.eq(#e2, 2, "pick with an object lookup")
+T.eq(e2[2].value.s, "y", "second event picks b")
+local okq, qerr = pcall(Strudel.events, run('$: "c".pick({a: s("x")})').layers[1].pattern, 0, 1)
+T.ok(not okq and tostring(qerr):find("no entry named 'c'"), "pick: unknown key is reported")
+local r3, e3 = Strudel.run('$: s("a").fast({a: 1})')
+T.ok(not r3 or true, "an object where a number is expected does not crash the parser")
+T.ok(select(2, Strudel.run('$: s("a") + {')) ~= nil, "unterminated object: parse error with a line number")
+T.eq(#Strudel.events(run('$: n("0 1").scale("nonsense")').layers[1].pattern, 0, 1), 0, "unknown scale: events dropped (Strudel logs and drops them)")
+local okq2 = pcall(Strudel.events, run('$: n(1).scaleTranspose(1)').layers[1].pattern, 0, 1)
+T.ok(not okq2, "scaleTranspose without scale: error")
+
+-- 0.2: tempo for loopAt / splice / fit is passed per cycle (Strudel.events opts.cps_fn) -----------------------------
+local pat = run('$: s("a").loopAt(2)').layers[1].pattern
+local evs = Strudel.events(pat, 0, 2, { cps_fn = function() return 0.25 end })
+T.ok(math.abs(evs[1].value.speed - (1 / 2) * 0.25) < 1e-12, "loopAt uses the cps given by the host: speed = 1/2 * 0.25")
+T.eq(evs[1].value.unit, "c", "and unit c")
+evs = Strudel.events(pat, 0, 2)
+T.ok(math.abs(evs[1].value.speed - 0.25) < 1e-12, "without cps Strudel's default 0.5 is used")
 
 T.done("test_units")

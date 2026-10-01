@@ -61,7 +61,8 @@ choice, `.` feet, `*` `/` `!` `@` `_` `?` `?0.3`, euclid `(k,n,rot)` with patter
 pasted code cannot reach `os`, `io` or the file system. Anything unknown is an error with its line number.
 
 **Constructors** `s sound n note stack cat slowcat fastcat seq sequence timeCat silence run irand mini id`
-and the signals `sine cosine saw isaw square tri rand` (`sine2 saw2 rand2`).
+and the signals `sine cosine saw isaw square tri rand perlin berlin` (`sine2 saw2 rand2`).
+**0.2:** `arrange stepcat polymeter polyrhythm pm pr` · `choose chooseIn chooseOut chooseWith chooseInWith chooseCycles randcat wchoose wchooseCycles wrandcat` · `pick pickmod squeeze`.
 
 **Methods** (all with patterned arguments, e.g. `.fast("<2 4>")`):
 `add sub mul div mod pow set keep` · `fast slow early late rev palindrome iter iterBack ply segment` ·
@@ -69,23 +70,31 @@ and the signals `sine cosine saw isaw square tri rand` (`sine2 saw2 rand2`).
 `degrade degradeBy undegradeBy sometimes sometimesBy often rarely almostNever almostAlways always never
 someCycles someCyclesBy` · `range range2 round` · `inside outside zoom linger compress fastGap focus repeatCycles
 chunk chunkBack` · `jux juxBy hurry echo echoWith stut` · `stack cat fastcat`.
+**0.2 methods:** `scale scaleTranspose scaleTrans strans transpose trans` · `swing swingBy brak press pressBy within plyWith euclidLegato euclidLegatoRot ribbon rib reset restart shuffle scramble invert` ·
+`chop striate slice splice bite loopAt fit` · `pick pickmod pickF pickRestart pickReset pickOut inhabit inhabitmod pickSqueeze` (arrays and `{ a: x }` objects; objects exist **only** as such lookups).
 
-**Controls** that carry meaning: `s sound n note gain velocity(vel) pan legato clip speed channel`.
+**Controls** that carry meaning (for the host; strudel-lua itself only produces the values): `s sound n note gain velocity(vel) postgain pan legato clip speed channel
+midichan bank begin end loop cut unit octave(oct) ccn ccv progNum midibend`.
 About 70 synth / sampler controls (`lpf room delay attack vowel orbit ...`) are **accepted and ignored**, listed
 in `warnings`. Visual helpers (`.scope() .pianoroll() ...`) and `setcps`/`setcpm`/`samples(...)` are ignored.
 
-**Not implemented** (an error, never silently skipped): `scale`, `arrange`, `voicing`/chords, `arp`, `bite`,
-`slice`/`splice`, `chop`, `swing`, `ribbon`, `pick*`, `nrpn`, `cc`, `perlin`, `rand`-based `shuffle`/`scramble`,
-`register()`, JS objects, template strings with `${}`, `if`/`for`/`function`.
+**Not implemented** (an error, never silently skipped): chords (`chord voicing rootNotes anchor mode dict`) and `arp` (planned for 0.2.5),
+`nrpn`/`sysex`/`miditouch`, `register()`, JS objects other than as a `pick`/`inhabit` lookup, template strings with `${}`, `if`/`for`/`function`.
+Names that do not exist in Strudel 1.2.6 (`sew stitch rolled euclidOff euclidInv cc pitchbend cycleChoose`) are not provided either.
+
+**Tempo-dependent functions** — `loopAt`, `splice` and `fit` need the cycle length in seconds. A host passes it per cycle:
+`Strudel.events(pattern, from, to, { cps_fn = function(cycle) return cycles_per_second end })`. Without it Strudel's own
+defaults are used (0.5 for `loopAt`, 1 for `splice` / `fit`). Scales come from `src/strudel/scales.lua`, generated from tonal.js'
+scale dictionary by `reference/gen_scales.mjs`.
 
 ## Tests — checked against the real thing
 
-`test/test_oracle.lua` compares strudel-lua with **real Strudel 1.2.6** on `test/golden.json`: 483 expressions
-(hand-written + fuzzed random mini-notation and method chains), onsets of cycles 0-8, exact rational times.
-Currently **483 of 483 identical** (a further 280 generated cases are rejected by Strudel itself and skipped).
+`test/test_reference.lua` compares strudel-lua with **real Strudel 1.2.6** (core, mini and tonal) on `test/golden.json`: 789 expressions
+(hand-written + fuzzed random mini-notation and method chains, incl. the 0.2 functions), onsets of cycles 0-8, exact rational times.
+Currently **789 of 789 identical** (a further 431 generated cases are rejected by Strudel itself and skipped).
 
 ```
-lua5.4 test/test_oracle.lua        # differential test against the stored golden data (no node needed)
+lua5.4 test/test_reference.lua        # differential test against the stored golden data (no node needed)
 lua5.4 test/test_units.lua         # fractions, RNG reference values, language errors, safety
 lua5.4 test/one.lua 's("bd*3").every(2, x=>x.rev())'   # print the events of one expression
 ```
@@ -93,10 +102,11 @@ lua5.4 test/one.lua 's("bd*3").every(2, x=>x.rev())'   # print the events of one
 To regenerate the golden data, or fuzz with new seeds (needs node + npm + network):
 
 ```
-bash oracle/setup.sh               # installs real Strudel next to oracle/lib.mjs (not shipped)
-node oracle/fuzz.mjs 4242          # writes test/cases_fuzz.txt with new random programs
-node oracle/gen.mjs                # evaluates every test/cases*.txt with real Strudel -> test/golden.json
-lua5.4 test/test_oracle.lua
+bash reference/setup.sh               # installs real Strudel next to reference/lib.mjs (not shipped)
+node reference/fuzz.mjs 4242          # writes test/cases_fuzz.txt with new random programs
+node reference/fuzz.mjs 777 --v02     # same for the 0.2 functions: test/cases_fuzz_v02.txt
+node reference/gen.mjs                # evaluates every test/cases*.txt with real Strudel -> test/golden.json
+lua5.4 test/test_reference.lua
 ```
 
 Differences that are known and intended: randomness uses Strudel's default ("legacy") generator only; arithmetic on

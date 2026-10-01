@@ -1,5 +1,5 @@
 // Generates test/golden.json: every case of test/cases.txt evaluated by REAL Strudel (@strudel/core + mini).
-// Usage (from strudel-lua/):  node oracle/gen.mjs        (needs the oracle deps, see oracle/README.md)
+// Usage (from strudel-lua/):  node reference/gen.mjs        (needs the reference deps: bash reference/setup.sh)
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,5 +22,7 @@ for (const src of cases) {
     out.push({ src, error: String(e.message || e) });
   }
 }
-fs.writeFileSync(path.join(here, '../test/golden.json'), JSON.stringify(out));
+const bad = out.filter((c) => { try { JSON.stringify(c); return false; } catch { return true; } });
+for (const c of bad) { console.log('not serialisable (dropped):', c.src); }
+fs.writeFileSync(path.join(here, '../test/golden.json'), JSON.stringify(out.filter((c) => !bad.includes(c))));
 console.log(`wrote ${out.length} cases, ${out.filter((c) => c.error).length} rejected by Strudel`);

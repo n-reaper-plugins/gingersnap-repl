@@ -1,10 +1,12 @@
 -- Stub of ReaImGui: records calls, returns harmless defaults. `clicks[label]=true` makes that button report a click.
 local M = {}
 function M.install(R)
-  local st = { calls = {}, clicks = {}, texts = {}, drop = nil, input_text = nil, deact = false, code = nil }
+  local st = { calls = {}, clicks = {}, texts = {}, drop = nil, input_text = nil, deact = false, pushed = 0, popped = 0, pushed_vals = {}, collapsed = false, code = nil }
   local special = {
     ImGui_CreateContext = function() return "ctx" end,
-    ImGui_Begin = function() return true, true end,
+    ImGui_Begin = function() return not st.collapsed, true end,
+    ImGui_PushStyleColor = function(_, _, v) st.pushed = st.pushed + 1; st.pushed_vals[#st.pushed_vals + 1] = v end,
+    ImGui_PopStyleColor = function(_, n) st.popped = st.popped + (n or 1) end,
     ImGui_BeginTable = function() return true end,
     ImGui_GetContentRegionAvail = function() return 600, 400 end,
     ImGui_InputText = function(_, _, buf) if st.input_text then local v = st.input_text; st.input_text = nil; return true, v end return false, buf end,

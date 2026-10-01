@@ -81,7 +81,13 @@ function M.install()
   R.SetExtState = function(sec, k, v) S.ext[sec .. "/" .. k] = v end
   R.GetProjExtState = function(_, sec, k) local v = S.projext[sec .. "/" .. k]; return v and 1 or 0, v or "" end
   R.SetProjExtState = function(_, sec, k, v) S.writes = S.writes + 1; S.projext[sec .. "/" .. k] = (v ~= "" and v) or nil end
-  R.Main_OnCommand = function() end
+  S.commands = {}
+  R.Main_OnCommand = function(id)
+    S.commands[#S.commands + 1] = id
+    if id == 41051 then                       -- Item properties: Toggle take reverse (acts on the selected items)
+      for _, it in ipairs(S.items) do if it.sel then it.p.reversed = not it.p.reversed; bump() end end
+    end
+  end
   R.EnumProjects = function() return "proj" end
   R.GetProjectStateChangeCount = function() return S.statecount end
   R.PreventUIRefresh = function() end
@@ -229,6 +235,11 @@ function M.install()
   R.MIDI_DisableSort = function() end
   R.MIDI_Sort = function() end
   R.MIDI_GetPPQPosFromProjTime = function(tk, t) return t / spq() * 960 end
+  R.MIDI_InsertCC = function(tk, sel, muted, ppq, msg1, chan, a, b)
+    tk.ccs = tk.ccs or {}
+    tk.ccs[#tk.ccs + 1] = { ppq = ppq, msg1 = msg1, chan = chan, a = a, b = b }
+    return true
+  end
   R.MIDI_InsertNote = function(tk, sel, muted, s, e, chan, pitch, vel)
     tk.notes[#tk.notes + 1] = { s = s, e = e, chan = chan, pitch = pitch, vel = vel }
     return true

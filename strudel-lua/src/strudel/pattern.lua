@@ -4,7 +4,7 @@
 --
 -- strudel-lua is a Lua implementation of the semantics of Strudel
 -- (https://strudel.cc) and Tidal. It follows the behaviour of Strudel's @strudel/core and is checked
--- against it (test/oracle). Licensed AGPL-3.0-or-later, see ../../README.md.
+-- against it (test/reference). Licensed AGPL-3.0-or-later, see ../../README.md.
 
 local Fraction = require("strudel.fraction")
 local of = Fraction.of
@@ -21,6 +21,12 @@ function P.list(t) return setmetatable(t, List) end
 function P.is_list(v) return getmetatable(v) == List end
 local function is_map(v) return type(v) == "table" and getmetatable(v) == nil end
 P.is_map = is_map
+
+-- JS object literals ({ a: x, b: y }) as written in code; NOT control maps (those have no metatable)
+local Obj = {}
+Obj.__index = Obj
+function P.obj(t) return setmetatable(t, Obj) end
+function P.is_obj(v) return getmetatable(v) == Obj end
 
 --------------------------------------------------------------------------------
 -- TimeSpan  { b = Fraction, e = Fraction }
@@ -132,11 +138,13 @@ function Pattern:with_haps(f)
 end
 function Pattern:fmap(f)
   local pat = self
-  return new(function(sp)
+  local r = new(function(sp)
     local out = {}
     for i, h in ipairs(pat.query(sp)) do out[i] = H(h.whole, h.part, f(h.value)) end
     return out
   end)
+  r.weight = self.weight            -- steps are kept, like Strudel's withValue
+  return r
 end
 function Pattern:filter_haps(f)
   local pat = self
@@ -265,6 +273,27 @@ function Pattern:squeeze_join()
 end
 function Pattern:squeeze_bind(func) return self:fmap(func):squeeze_join() end
 
+-- retriggers the inner patterns at the onsets of the outer haps
+--   reset   : the inner cycle start is aligned to the outer hap start
+--   restart : inner cycle ZERO is aligned to the outer hap start
+function Pattern:reset_join(restart)
+  local pat_of_pats = self
+  return new(function(sp)
+    local out = {}
+    for _, outer in ipairs(pat_of_pats:discrete_only().query(sp)) do
+      local shift = restart and outer.whole.b or outer.whole.b:cycle_pos()
+      local inner = outer.value:_late(shift)
+      for _, ih in ipairs(inner.query(sp)) do
+        local whole = ih.whole and span_intersection(ih.whole, outer.whole) or nil
+        local part = span_intersection(ih.part, outer.part)
+        if part then out[#out + 1] = H(whole, part, ih.value) end
+      end
+    end
+    return out
+  end)
+end
+function Pattern:restart_join() return self:reset_join(true) end
+
 --------------------------------------------------------------------------------
 -- constructors
 --------------------------------------------------------------------------------
@@ -272,13 +301,15 @@ local silence = new(function() return {} end)
 P.silence = silence
 
 local function pure(v)
-  return new(function(sp)
+  local p = new(function(sp)
     local out = {}
     for _, sub in ipairs(span_cycles(sp)) do
       out[#out + 1] = H(S(sub.b:sam(), sub.b:next_sam()), sub, v)
     end
     return out
   end, v)
+  p.weight = ONE                      -- number of steps (Strudel's _steps): used by stepcat / polymeter
+  return p
 end
 P.pure = pure
 
@@ -343,6 +374,7 @@ function P.fastcat(...)
   local n = select("#", ...)
   local result = slowcat(...)
   if n > 1 then result = result:_fast(n) end
+  if n > 1 then result.weight = of(n) end   -- (n == 1 returns the argument itself: do not touch it)
   return result
 end
 P.sequence = P.fastcat

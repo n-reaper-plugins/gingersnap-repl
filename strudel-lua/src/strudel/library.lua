@@ -26,7 +26,7 @@ local function union_with_obj(a, b, op)
   for k, v in pairs(a) do r[k] = v end
   for k, v in pairs(b) do r[k] = v end
   for k in pairs(a) do
-    if b[k] ~= nil then r[k] = op(a[k], b[k]) end
+    if type(k) == "string" and b[k] ~= nil then r[k] = op(a[k], b[k]) end    -- (non-string keys are hidden bookkeeping, e.g. the scale)
   end
   return r
 end
@@ -287,5 +287,163 @@ end)
 register("stut", 3, function(times, feedback, time, pat)
   return pat:_echoWith(times, time, function(p, i) return p:gain(feedback ^ i) end)
 end)
+
+--------------------------------------------------------------------------------
+-- 0.2: rhythm and structure
+--------------------------------------------------------------------------------
+register("swingBy", 2, function(swing, n, pat)
+  return pat:_inside(n, function(p) return p:late(P.sequence(0, swing / 2)) end)
+end)
+register("swing", 1, function(n, pat) return pat:_swingBy(1 / 3, n) end)
+
+register("brak", 0, function(pat)
+  return pat:when(slowcat(false, true), function(x) return fastcat(x, silence):_late(0.25) end)
+end)
+
+register("pressBy", 1, function(r, pat)
+  return pat:fmap(function(x) return pure(x):_compress(r, 1) end):squeeze_join()
+end)
+register("press", 0, function(pat) return pat:_pressBy(0.5) end)
+
+-- keeps only the events whose START falls in [a, b] (cycle position), applies f to them
+local function filter_when(pat, test)
+  return pat:filter_haps(function(h) return test(h.whole.b) end)
+end
+register("within", 3, function(a, b, fn, pat)
+  return stack(
+    reify(fn(filter_when(pat, function(t) local c = t:cycle_pos():float(); return c >= a and c <= b end))),
+    filter_when(pat, function(t) local c = t:cycle_pos():float(); return c < a or c > b end))
+end)
+
+local function apply_n(n, func, p)
+  local result = p
+  for _ = 1, n do result = reify(func(result)) end
+  return result
+end
+register({ "plyWith", "plywith" }, 2, function(factor, func, pat)
+  return pat:fmap(function(x)
+    local pats = {}
+    for i = 0, factor - 1 do pats[#pats + 1] = apply_n(i, func, pure(x)) end
+    return slowcat(table.unpack(pats)):_fast(factor)
+  end):squeeze_join()
+end)
+
+-- euclid variants
+local function euclid_legato(pulses, steps, rotation, pat)
+  if pulses < 1 then return silence end
+  local bits = L.euclid_bits(pulses, steps, 0)
+  local str = table.concat(bits)
+  local pairs_, first = {}, true
+  -- split on "1", drop the part before the first one: each remaining piece is a step that lasts until the next onset
+  for piece in (str .. "1"):gmatch("([^1]*)1") do
+    if first then first = false else pairs_[#pairs_ + 1] = { #piece + 1, true } end
+  end
+  return pat:struct(P.timecat(pairs_)):late(of(rotation) / of(steps))
+end
+register("euclidLegato", 2, function(pulses, steps, pat) return euclid_legato(pulses, steps, 0, pat) end)
+register("euclidLegatoRot", 3, function(pulses, steps, rot, pat) return euclid_legato(pulses, steps, rot, pat) end)
+
+-- boolean helpers
+register({ "invert", "inv" }, 0, function(pat) return pat:fmap(function(x) return not truthy(x) end) end, false)
+
+-- reset / restart: retrigger the pattern at every true event of the argument
+local function keepif_join(self, other, restart)
+  return reify(other):fmap(function(b)
+    return self:fmap(function(a) if truthy(b) then return a end; return SKIP end)
+  end):reset_join(restart):remove_skipped()
+end
+function Pattern:reset(...) return keepif_join(self, sequence_of(...), false) end
+function Pattern:restart(...) return keepif_join(self, sequence_of(...), true) end
+P.api.reset, P.api.restart = Pattern.reset, Pattern.restart
+P.arity.reset, P.arity.restart = 1, 1
+
+register({ "ribbon", "rib" }, 2, function(offset, cycles, pat)
+  return pat:early(offset):restart(pure(1):slow(cycles))
+end)
+
+
+--------------------------------------------------------------------------------
+-- steps: stepcat, polymeter, arrange (Strudel's _steps = our `weight`)
+--------------------------------------------------------------------------------
+local function gcd_i(a, b) a, b = math.abs(a), math.abs(b); while b ~= 0 do a, b = b, a % b end; return a end
+local function lcm_fraction(a, b)          -- fraction.js: lcm(n1/d1, n2/d2) = lcm(n1, n2) / gcd(d1, d2)
+  if a.n == 0 or b.n == 0 then return ZERO end
+  local l = (a.n // gcd_i(a.n, b.n)) * b.n
+  return of(l, gcd_i(a.d, b.d))
+end
+
+function L.stepcat(...)
+  local items = {}
+  for i, x in ipairs({ ... }) do
+    if P.is_list(x) then items[i] = { of(x[1]), reify(x[2]) }
+    else local rp = reify(x); items[i] = { rp.weight or ONE, rp } end
+  end
+  if #items == 0 then return silence end
+  if #items == 1 then local r = items[1][2]; return r:_slow(ONE) end
+  local total = ZERO
+  for _, it in ipairs(items) do total = total + it[1] end
+  local b, pats = ZERO, {}
+  for _, it in ipairs(items) do
+    if it[1].n ~= 0 then
+      local e = b + it[1]
+      pats[#pats + 1] = it[2]:_compress(b / total, e / total)
+      b = e
+    end
+  end
+  local r = stack(table.unpack(pats))
+  r.weight = total
+  return r
+end
+
+function L.arrange(...)
+  local total, secs = ZERO, {}
+  for i, sec in ipairs({ ... }) do
+    total = total + of(sec[1])
+    secs[i] = P.list({ sec[1], reify(sec[2]):fast(sec[1]) })
+  end
+  return L.stepcat(table.unpack(secs)):_slow(total)
+end
+
+-- polymeter: with arrays   polymeter([a b], [c d e])  -> every array keeps the pulse of the first; with patterns: lcm of the steps
+local function sequence_count(x)
+  if P.is_list(x) then
+    if #x == 0 then return silence, 0 end
+    if #x == 1 then return sequence_count(x[1]) end
+    local pats = {}
+    for i, a in ipairs(x) do pats[i] = (sequence_count(a)) end
+    return fastcat(table.unpack(pats)), #x
+  end
+  return reify(x), 1
+end
+function L.polymeter(...)
+  local args = { ... }
+  if P.is_list(args[1]) then
+    local seqs = {}
+    for i, a in ipairs(args) do local p, n = sequence_count(a); seqs[i] = { p, n } end
+    if #seqs == 0 then return silence end
+    local steps = seqs[1][2]
+    local pats = {}
+    for _, sq in ipairs(seqs) do
+      if sq[2] ~= 0 then
+        if steps == sq[2] then pats[#pats + 1] = sq[1] else pats[#pats + 1] = sq[1]:_fast(of(steps) / of(sq[2])) end
+      end
+    end
+    return stack(table.unpack(pats))
+  end
+  local with = {}
+  for _, a in ipairs(args) do
+    local p = reify(a)
+    if p.weight then with[#with + 1] = p end
+  end
+  if #with == 0 then return silence end
+  local steps = with[1].weight
+  for i = 2, #with do steps = lcm_fraction(steps, with[i].weight) end
+  if steps.n == 0 then return silence end
+  local pats = {}
+  for i, p in ipairs(with) do pats[i] = p:_fast(steps / p.weight) end
+  local r = stack(table.unpack(pats))
+  r.weight = steps
+  return r
+end
 
 return L

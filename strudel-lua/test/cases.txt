@@ -1,4 +1,4 @@
-# One Strudel expression per line. Each is run through real Strudel (oracle/gen.mjs) and through strudel-lua,
+# One Strudel expression per line. Each is run through real Strudel (reference/gen.mjs) and through strudel-lua,
 # cycles 0..8, onsets only. Lines starting with # are comments.
 "bd sn hh cp"
 "bd ~ sn -"

@@ -78,19 +78,27 @@ C.register_control("pan")
 C.register_control("legato")
 C.register_control("clip")
 C.register_control("speed")
-C.register_control("channel", { "midichan" })
+C.register_control("channel")
+C.register_control("midichan")                       -- same as channel for the host
+C.register_control("postgain")                       -- multiplies the volume / velocity (after gain)
+C.register_control("octave", { "oct" })              -- shifts MIDI notes by n octaves  (NB: in Strudel .o() is `orbit`, not octave)
+C.register_control("bank")                           -- sound lookup prefix: bank("RolandTR909").s("bd") -> RolandTR909_bd
+C.register_control("begin"); C.register_control("end")
+C.register_control("loop"); C.register_control("cut"); C.register_control("unit")
+C.register_control("ccn"); C.register_control("ccv"); C.register_control("progNum"); C.register_control("midibend")
 
 -- accepted, but no effect when rendering a project
 for _, nm in ipairs({
   "lpf", "cutoff", "lp", "hpf", "hcutoff", "hp", "resonance", "lpq", "hpq", "bandf", "bpf", "bandq", "bpq",
   "room", "size", "roomsize", "sz", "rsize", "delay", "delaytime", "delayfeedback", "delayfb", "delayt",
   "attack", "att", "decay", "dec", "sustain", "sus", "release", "rel", "shape", "crush", "coarse", "distort",
-  "vowel", "bank", "orbit", "cut", "detune", "det", "unison", "phaser", "phaserdepth", "tremolo", "postgain",
+  "vowel", "detune", "det", "unison", "phaser", "phaserdepth", "tremolo",
   "lpenv", "lpa", "lpd", "lps", "lpr", "hpenv", "acidenv", "fm", "fmi", "fmh", "duck", "duckdepth", "compressor",
-  "begin", "end", "loop", "loopAt", "chop", "accelerate", "amp", "octave", "slide", "wt", "warp", "sync", "clip",
+  "accelerate", "amp", "slide", "wt", "warp", "sync", "clip",
 }) do
   if not C.known[nm] then C.register_control(nm, nil, true) end
 end
+C.register_control("orbit", { "o" }, true)            -- (ignored: mixer output)
 -- visual / analysis helpers: accepted and ignored
 C.visual = { "scope", "pianoroll", "punchcard", "spiral", "wordfall", "spectrum", "tscope", "fscope", "pitchwheel",
   "_scope", "_pianoroll", "_punchcard", "_spiral", "_wordfall", "_spectrum", "viz", "draw", "log", "hush" }

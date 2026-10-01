@@ -17,6 +17,7 @@ local SECTION = "Gingersnap"
 -- tags
 local E_ROLE, E_ID = "P_EXT:GS_ROLE", "P_EXT:GS_ID"                       -- tracks
 local E_KEY, E_OWN, E_SIG = "P_EXT:GS_KEY", "P_EXT:GS_OWN", "P_EXT:GS_SIG" -- generated items
+local E_REV = "P_EXT:GS_REV"                                                  -- generated audio item: currently reversed by us
 local E_PAT, E_NAME, E_MODE, E_CYC, E_OFF = "P_EXT:GS_PAT", "P_EXT:GS_NAME", "P_EXT:GS_MODE", "P_EXT:GS_CYC", "P_EXT:GS_OFF"
 
 RA.DEFAULT_CYCLE_QN = 4          -- one cycle = 4 quarter notes = one bar of 4/4
@@ -68,6 +69,8 @@ function RA.load_cfg()
   local function pget(k) local _, v = r.GetProjExtState(0, SECTION, k); written[k] = v; return v end
   local cfg = { root = pget("root"), mode = pget("mode") }
   cfg.follow = (r.GetExtState(SECTION, "follow") ~= "0")
+  cfg.aliases = (r.GetExtState(SECTION, "aliases") == "1")                -- standard drum aliases (sd rim lt mt ht cr rd cb perc): off by default
+  cfg.root_note = tonumber(r.GetExtState(SECTION, "root_note")) or Core.DEFAULT_ROOT_NOTE
   cfg.default_root = r.GetExtState(SECTION, "default_root")
   cfg.inherited = false
   if cfg.root == "" and cfg.default_root ~= "" then cfg.root = cfg.default_root; cfg.inherited = true end
@@ -81,6 +84,8 @@ function RA.save_cfg(cfg)
 end
 function RA.save_prefs(cfg)
   gset("follow", cfg.follow and "1" or "0")
+  gset("aliases", cfg.aliases and "1" or "0")
+  gset("root_note", tostring(cfg.root_note or Core.DEFAULT_ROOT_NOTE))
   if cfg.default_root and cfg.default_root ~= "" then gset("default_root", cfg.default_root) end
 end
 function RA.load_sig() local _, v = r.GetProjExtState(0, SECTION, "sig"); written.sig = v; return v ~= "" and v or nil end
@@ -372,7 +377,7 @@ function RA.apply_depths(root, layout)
 end
 
 local function untag_item(it)
-  for _, k in ipairs({ E_KEY, E_OWN, E_SIG }) do if iget(it, k) ~= "" then iset(it, k, "") end end
+  for _, k in ipairs({ E_KEY, E_OWN, E_SIG, E_REV }) do if iget(it, k) ~= "" then iset(it, k, "") end end
 end
 local function release_track(tr)
   for i = 0, r.CountTrackMediaItems(tr) - 1 do untag_item(r.GetTrackMediaItem(tr, i)) end
@@ -397,17 +402,35 @@ end
 --------------------------------------------------------------------------------
 -- SYNC: make the GINGERSNAP tracks / items match the composed plan
 --------------------------------------------------------------------------------
+-- reverse = REAPER's own "Item properties: Toggle take reverse" (action 41051); it acts on the selected items.
+-- NOT verified in real REAPER (offline tests only see the fake). The reversed state is remembered in a tag, and the
+-- item is turned back before every rewrite so that start offset / length mean the same thing as for a normal item.
+local TOGGLE_TAKE_REVERSE = 41051
+local function set_reverse(it, want)
+  local have = iget(it, E_REV) == "1"
+  if have == want then return end
+  for i = r.CountSelectedMediaItems(0) - 1, 0, -1 do r.SetMediaItemSelected(r.GetSelectedMediaItem(0, i), false) end
+  r.SetMediaItemSelected(it, true)
+  r.Main_OnCommand(TOGGLE_TAKE_REVERSE, 0)
+  r.SetMediaItemSelected(it, false)
+  iset(it, E_REV, want and "1" or "")
+end
+
 local function apply_audio_item(it, wi)
+  set_reverse(it, false)
   r.SetMediaItemInfo_Value(it, "D_POSITION", wi.pos)
   r.SetMediaItemInfo_Value(it, "D_LENGTH", wi.len)
   r.SetMediaItemInfo_Value(it, "D_VOL", wi.vol)
   r.SetMediaItemInfo_Value(it, "D_FADEOUTLEN", wi.fade or 0)
+  r.SetMediaItemInfo_Value(it, "B_LOOPSRC", wi.loop and 1 or 0)
   local take = r.GetActiveTake(it)
   if take then
     r.SetMediaItemTakeInfo_Value(take, "D_PAN", wi.pan)
     r.SetMediaItemTakeInfo_Value(take, "D_PLAYRATE", wi.rate)
     r.SetMediaItemTakeInfo_Value(take, "B_PPITCH", 0)
+    r.SetMediaItemTakeInfo_Value(take, "D_STARTOFFS", wi.offs or 0)
   end
+  if wi.reverse then set_reverse(it, true) end
 end
 
 local function build_midi_item(tr, m)
@@ -420,6 +443,11 @@ local function build_midi_item(tr, m)
       local s = r.MIDI_GetPPQPosFromProjTime(take, n.pos)
       local e = r.MIDI_GetPPQPosFromProjTime(take, n.stop)
       r.MIDI_InsertNote(take, false, false, s, e, n.chan - 1, n.pitch, n.vel, true)
+    end
+    -- controllers: Strudel's ccn / ccv, progNum, midibend
+    local CHANMSG = { cc = 0xB0, pc = 0xC0, pb = 0xE0 }
+    for _, c in ipairs(m.ctls or {}) do
+      r.MIDI_InsertCC(take, false, false, r.MIDI_GetPPQPosFromProjTime(take, c.pos), CHANMSG[c.kind], c.chan - 1, c.a, c.b)
     end
     r.MIDI_Sort(take)
   end

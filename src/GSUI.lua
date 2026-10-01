@@ -15,7 +15,28 @@ local COL_WARN = 0xFFAA33FF
 local COL_DIM  = 0x999999FF
 local COL_LIVE = 0x5FE07FFF
 local COL_FROZ = 0x6FB7FFFF
-local COL_CUR  = 0x2E5E8A80
+local COL_CUR  = 0x8542FA4F     -- current pattern row: same as the theme's Header colour
+local BG = 0x181A1AFF
+local THEME = {
+  { "WindowBg", BG }, { "PopupBg", BG }, { "ChildBg", BG },
+  { "FrameBg", 0x47297A8A }, { "FrameBgHovered", 0x8542FA66 }, { "FrameBgActive", 0x8542FAAB },
+  { "Button", 0x8542FA66 }, { "ButtonHovered", 0x8542FAFF }, { "ButtonActive", 0x650FFAFF },
+  { "SliderGrab", 0x793DE0FF }, { "SliderGrabActive", 0x8542FAFF }, { "CheckMark", 0x8542FAFF },
+  { "Header", 0x8542FA4F }, { "HeaderHovered", 0x8542FACC }, { "HeaderActive", 0x8542FAFF },
+  { "PlotHistogram", 0x8542FAFF }, { "TitleBgActive", 0x47297AFF },
+}
+
+-- pushes the theme and returns how many colours were pushed
+-- (a colour name missing in an older ReaImGui is skipped instead of raising an error)
+local function push_theme(ctx)
+  local n = 0
+  for _, c in ipairs(THEME) do
+    local get = r["ImGui_Col_" .. c[1]]
+    if get then r.ImGui_PushStyleColor(ctx, get(), c[2]); n = n + 1 end
+  end
+  return n
+end
+
 
 UI.EXAMPLES = {
   { "drums", '$: s("bd*2, ~ sn, hh*8").gain(0.8)' },
@@ -184,6 +205,22 @@ function UI:draw_patterns()
   if ch then A:set_follow(v) end
   self:tip("Clicking a pattern item on the timeline opens it in the editor")
 
+  -- global settings (the same for every project)
+  local cha, va = r.ImGui_Checkbox(ctx, "Standard drum aliases", A.cfg.aliases)
+  if cha then A:set_aliases(va) end
+  self:tip("Off by default. On: the Strudel drum names sd rim lt mt ht cr rd cb perc work as General MIDI drums, and\n"
+    .. "as sample folders s(\"sd\") also finds a folder called sn / snare (and the other way round).")
+  r.ImGui_SameLine(ctx)
+  r.ImGui_SetNextItemWidth(ctx, 60)
+  if not self.root_buf then self.root_buf = tostring(A.cfg.root_note) end
+  local chr, rb = r.ImGui_InputText(ctx, "Sample root note##root", self.root_buf, r.ImGui_InputTextFlags_EnterReturnsTrue())
+  if chr then
+    self.root_buf = rb
+    if not A:set_root_note(rb) then self.root_buf = tostring(A.cfg.root_note) end
+  end
+  self:tip("The note at which a sample plays unchanged (MIDI number or name, default 36 = c2, like Strudel).\n"
+    .. "note(\"c3\").s(\"piano\") then plays the sample 12 semitones higher: rate = 2^((note - root) / 12).")
+
   if #A.patterns == 0 then
     r.ImGui_TextColored(ctx, COL_DIM, "No pattern yet: click \"New pattern\".")
     return
@@ -343,6 +380,7 @@ end
 -- returns false when the window has been closed
 function UI:frame()
   local ctx = self.ctx
+  local pushed = push_theme(ctx)
   r.ImGui_SetNextWindowSize(ctx, 780, 860, r.ImGui_Cond_FirstUseEver())
   local visible, open = r.ImGui_Begin(ctx, self.title, true)
   if visible then
@@ -350,6 +388,7 @@ function UI:frame()
     if not ok then self.A.err = "UI error: " .. tostring(e) end
     r.ImGui_End(ctx)
   end
+  if pushed > 0 then r.ImGui_PopStyleColor(ctx, pushed) end   -- also when the window is collapsed: the colour stack must stay balanced
   return open
 end
 

@@ -16,12 +16,12 @@ lead: note("c4 [e4 g4]").off(1/8, x => x.add(note(7)))     →  a second MIDI tr
 It is **not a realtime engine**: a pattern is rendered once into ordinary REAPER items (and re-rendered when you
 change something), so you can mix, edit, freeze, print and share the project like any other. The pattern language
 is a Lua implementation of Strudel's semantics ([`strudel-lua`](strudel-lua/README.md)) that produces the same
-events as real Strudel 1.2.6 on 483 test expressions.
+events as real Strudel 1.2.6 on 789 test expressions.
 
 > Gingersnap is an independent project and not affiliated with or endorsed by the Strudel project; "Strudel" names the
 > pattern language whose behaviour it reproduces.
 >
-> **Status: v0.1.0, untested inside real REAPER.** All logic is tested offline against a fake REAPER; the
+> **Status: v0.2.0, untested inside real REAPER.** All logic is tested offline against a fake REAPER; the
 > REAPER-facing calls, the ReaImGui window and MIDI insertion have never been run in the real program. Read
 > [Verified vs. NOT verified](#verified-vs-not-verified) before trusting it with a project you care about.
 
@@ -56,7 +56,19 @@ quarantine flag, registers the action while REAPER is closed, backs up `reaper-k
 | `note("c3 e3")`, `n("60 64")` (no `s`) | – | MIDI notes (Strudel naming: `c3` = 48) |
 | `.gain(g)` `.velocity(v)` | item volume = g·v | velocity = 127·v·g (default v 0.8) |
 | `.pan(0..1)` | take pan | – |
-| `.speed(x)` | play rate (pitch follows), item length = file / x | – |
+| `.speed(x)` | play rate (pitch follows), item length = file / x; **negative = reversed** | – |
+| `note("c3").s("piano")` | the sample is **repitched**: rate = 2^((note − root) / 12), root = setting *Sample root note* (default 36 = c2, like Strudel) | – |
+| `.begin(a).end(b)` | start offset a × file length, item = (b − a) × file / speed | – |
+| `.chop(n)` `.striate(n)` `.slice(n, "0 2")` `.splice(n, i)` `.bite(n, i)` | n items with begin / end set (what Strudel does with `begin` / `end`) | – |
+| `.loopAt(c)` `.fit()` `.splice(…)` | speed counts cycles (`unit("c")`): the file is stretched to fit, **following the tempo map** | – |
+| `.loop(1)` | item as long as the event, looping the file | – |
+| `.cut(n)` | an item of group n stops the earlier ones of that group (within one pattern) | – |
+| `.bank("RolandTR909")` | folder `RolandTR909_bd` first, then `bd` | – |
+| `.postgain(x)` | item volume × x | velocity × x |
+| `.octave(n)` / `.oct(n)` | – | notes shifted by n octaves |
+| `.ccn(74).ccv(0.5)` `.progNum(5)` `.midibend(-1..1)` | – | controller / program change / pitch bend in the MIDI item (also without a note) |
+| `.midichan(n)` / `.channel(n)` | – | MIDI channel |
+| `n("0 2 4").scale("C:major")` | – | notes (also `scaleTranspose`, `transpose`) |
 | `.legato(x)` / `.clip(x)` | item cut to x × the event length (short fade) | note length = x × event length |
 | `$:` lines / `name:` lines | – | one MIDI track per line (`_$:` mutes a line) |
 
@@ -64,6 +76,9 @@ quarantine flag, registers the action while REAPER is closed, backs up `reaper-k
 * **Time** — one cycle = *beats per cycle* quarter notes (default 4 = a bar of 4/4), so the result follows the
   project's **tempo map**. `setcpm()` / `setcps()` in code are ignored; tempo is REAPER's. Only events whose *start* lies
   inside the pattern item are rendered.
+* **Settings (global, in the window)** — *Standard drum aliases* (off by default): the Strudel drum names `sd rim lt mt ht cr rd cb perc`
+  become General MIDI drums, and as sample folders `s("sd")` also finds a folder called `sn` / `snare` (and `s("snare")` finds `sd`).
+  *Sample root note*: the note at which a sample is played unchanged (default 36).
 * **Tracks** — everything is generated under a collapsed **GINGERSNAP** folder: one group per sound, one track per file;
   when the *same* sound overlaps itself a duplicate "voice" track (`a (2)`) is added so items never overlap. MIDI
   goes to a **MIDI** group. Tracks and items are found by hidden tags, so you may rename and recolor them.
@@ -84,22 +99,32 @@ s("bd:1 sn:0")   note("c e g")   n("0 .. 7")   n("<0 3>*4")
 .every(4, x => x.rev())  .off(1/8, x => x.add(note(7)))  .sometimes(x => x.speed(2))  .superimpose(x => x.late(0.02))
 .struct("x ~ x x")  .mask("<1 0>")  .euclid(3,8)  .degradeBy(0.3)  .jux(rev)  .chunk(4, x => x.gain(0.4))
 .gain(rand.range(0.4, 1))   .pan(sine)   .add("<0 7>")   stack(a, b)   cat(a, b)
+// 0.2
+n("0 2 4 7").scale("C:minor").scaleTranspose("<0 2>")   note("c e").transpose("<0 7>")   note("c3").s("piano")    // repitched
+s("hh*8").swing(4)   .shuffle(4)   .scramble(4)   .brak()   .press()   .within(0, 0.5, x => x.fast(2))   .plyWith(3, x => x.gain(0.7))
+s("bev").chop(8)   s("bev").slice(4, "0 2 1 3")   s("bev").splice(4, "0 2")   s("bev").loopAt(2)   s("bev*2").begin(0.25).speed(-1)
+"<0 1>".pick([s("bd sd"), s("hh*4")])   "a b".inhabit({ a: s("bd sd"), b: s("cp") })   arrange([2, s("bd")], [1, s("sd")])
+s("hh*8").gain(perlin)   s(choose("bd","sd"))   note("c").ccn(74).ccv(sine)   note("c").progNum(5)
 ```
-The complete list, and what is *not* supported (`scale`, `arrange`, chords, …), is in
-[`strudel-lua/README.md`](strudel-lua/README.md).
+The complete list, and what is *not* supported (chords, `arp`, …), is in
+[`strudel-lua/README.md`](strudel-lua/README.md) and [`COMPATIBILITY.md`](COMPATIBILITY.md).
+Only functions that exist in Strudel 1.2.6 are provided; nothing is invented.
 
 ## Verified vs. NOT verified
 
 **Verified offline** (`tools/run_tests.sh`, all green):
 
-* the pattern engine reproduces real Strudel 1.2.6 exactly: 483/483 test expressions incl. seeded randomness,
-  polymeter, euclid, `every`, `off`, `jux` …; reference values of the random generator;
+* the pattern engine reproduces real Strudel 1.2.6 exactly: 789/789 test expressions incl. seeded randomness,
+  polymeter, euclid, `every`, `off`, `jux`, and (new in 0.2) `scale`, `transpose`, `chop`/`slice`/`splice`/`bite`, `loopAt`, `pick*`,
+  `arrange`, `shuffle`, `perlin` …; reference values of the random generator;
 * the planner (`GSCore`): sound lookup, `:N` / `n()` wrapping, gain / pan / speed / legato, MIDI pitch and drum
-  mapping, voice allocation, event limits, signatures (49 checks);
+  mapping, voice allocation, event limits, signatures (49 checks), and the 0.2 features: aliases, bank lookup, repitch,
+  begin / end, reverse, chop / splice / loopAt / fit lengths (also with a different tempo), loop, cut, postgain, CC / program /
+  pitch bend (100 checks);
 * the REAPER layer against a **fake** REAPER (80 checks): track / folder structure, tags, keyed diffing, that
   moving / resizing / re-tempo / beats-per-cycle re-render, MIDI items, error pausing, freeze, delete, detach, duplicates,
   no project writes while merely opening the window;
-* the bundled single file end to end with a stubbed ReaImGui (15 checks): open, drop a folder, New pattern, type, checkbox, close;
+* the bundled single file end to end with a stubbed ReaImGui (20 checks): open, drop a folder, New pattern, type, checkbox, close;
 * the installer against a temporary REAPER folder (install, reinstall, uninstall).
 
 **NOT verified — never run in real REAPER** (please test these first, and tell me what breaks):
@@ -111,20 +136,25 @@ The complete list, and what is *not* supported (`scale`, `arrange`, chords, …)
   copy / save / load, that copying a pattern item gives the copy its own GUID and output;
 * **MIDI creation**: `CreateNewMIDIItemInProj` + `MIDI_InsertNote` with PPQ positions from `MIDI_GetPPQPosFromProjTime`
   (positions inside tempo changes, note-off ordering, channels);
+* **0.2, new REAPER calls**: `D_STARTOFFS` (begin / end / slices), `B_LOOPSRC` (loop), **reverse via the action
+  "Item properties: Toggle take reverse" (id 41051)** run on the selected item (also combined with a start offset: the code assumes
+  that REAPER reverses what is visible), `MIDI_InsertCC` for controllers / program change / pitch bend, repitched samples
+  (`D_PLAYRATE` far from 1) and the two new settings in the window (aliases checkbox, root note field);
 * **audio**: `D_PLAYRATE` / `B_PPITCH` / `D_PAN` on takes, item lengths at non-1 playrates, formats REAPER cannot decode;
 * **tempo maps**: positions are computed per event with `TimeMap2_QNToTime`; only a constant-tempo fake was tested;
 * `ReorderSelectedTracks` / folder-depth juggling (code taken over from PrototypeSequence) with many groups;
 * **performance** with thousands of items (each render is one undo block and rewrites only changed items, but it has not been timed);
 * Windows paths (`\`), non-ASCII sound folder names, sample files longer than a few minutes.
 
-**Known limits**: no `scale()`, `arrange`, chords, `arp`, `cc`; sound-specific pitching (`note("c e").s("piano")`
-does not repitch a sample); negative `speed` (reverse) is not supported; every control that only shapes synth sound
-(`lpf`, `room`, `delay` …) is accepted and ignored with a warning; one sample folder level only.
+**Known limits**: no chords / `voicing` / `arp` yet (planned for 0.2.5); `loop` loops the whole file (no `loopBegin` /
+`loopEnd`); `cut` groups work inside one pattern only; `octave` shifts MIDI notes but not samples (as in Strudel);
+every control that only shapes synth sound (`lpf`, `room`, `delay` …) is accepted and ignored with a warning; one sample
+folder level only. `.o()` is Strudel's `orbit` (ignored), not octave — use `.oct()`.
 
 ## Develop
 
 ```
-tools/run_tests.sh          # strudel-lua (oracle + units) + plugin (core, sync, bundle); needs lua 5.3+
+tools/run_tests.sh          # strudel-lua (reference + units) + plugin (core, sync, bundle); needs lua 5.3+
 lua tools/build.lua         # src/ + strudel-lua/src/ -> dist/Gingersnap.lua (the only file users need)
 ```
 

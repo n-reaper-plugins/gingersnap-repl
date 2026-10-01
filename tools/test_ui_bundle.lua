@@ -61,6 +61,20 @@ local app_err
 for _, t in ipairs(st.texts) do if tostring(t):find("UI error") or tostring(t):find("Error:") then app_err = t end end
 T.ok(app_err == nil, "no UI/runtime error shown: " .. tostring(app_err))
 
+-- theme: every frame pushes 17 colours and pops 17, also while the window is collapsed
+T.ok(st.pushed > 0 and st.pushed % 17 == 0, "theme pushes 17 colours per frame (" .. st.pushed .. " in total)")
+T.eq(st.popped, st.pushed, "colour stack balanced while the window is open")
+do
+  local seen = {}
+  for _, v in ipairs(st.pushed_vals) do seen[v] = true end
+  T.ok(seen[0x181A1AFF] and seen[0x8542FA66] and seen[0x8542FA4F], "background, Button and Header colours pushed")
+end
+st.pushed, st.popped, st.collapsed = 0, 0, true
+frame(0.2, 3)
+st.collapsed = false
+T.ok(st.pushed > 0 and st.pushed % 17 == 0, "collapsed: 17 colours pushed per frame")
+T.eq(st.popped, st.pushed, "colour stack balanced while the window is collapsed")
+
 -- second launch asks the first to close
 S.ext["GingersnapApp/hb"] = tostring(os.time())
 dofile("dist/Gingersnap.lua")

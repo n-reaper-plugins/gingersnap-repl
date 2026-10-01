@@ -25,12 +25,27 @@ local function xorwise(x)
 end
 local function trunc(x) return math.tointeger(x >= 0 and math.floor(x) or math.ceil(x)) end
 
--- t: time as a float (cycles)  ->  [0, 1)
-function M.time_to_rand(t)
+local function time_to_int_seed(t)
   local y = t / 300
   local frac = y - trunc(y)
-  local seed = xorwise(trunc(frac * 536870912))
-  return math.abs(math.fmod(seed, 536870912) / 536870912)
+  return xorwise(trunc(frac * 536870912))
+end
+
+-- t: time as a float (cycles)  ->  [0, 1)
+function M.time_to_rand(t)
+  return math.abs(math.fmod(time_to_int_seed(t), 536870912) / 536870912)
+end
+
+-- n successive numbers at time t (Strudel's legacy getRandsAtTime(t, n)); NOT made positive, like Strudel
+function M.time_to_rands(t, n)
+  local seed = time_to_int_seed(t)
+  if n == 1 then return { math.abs(math.fmod(seed, 536870912) / 536870912) } end
+  local out = {}
+  for i = 1, n do
+    out[i] = math.fmod(seed, 536870912) / 536870912
+    seed = xorwise(seed)
+  end
+  return out
 end
 
 --------------------------------------------------------------------------------
@@ -120,5 +135,91 @@ register("someCyclesBy", 2, function(x, func, pat)
     reify(func(degrade_by_with(pat, inv_rand():_segment(1), 1 - x))))
 end)
 register("someCycles", 1, function(func, pat) return pat:_someCyclesBy(0.5, func) end)
+
+--------------------------------------------------------------------------------
+-- 0.2: shuffle / scramble, choose family, perlin / berlin
+--------------------------------------------------------------------------------
+local fastcat = P.fastcat
+
+-- a random permutation of 0 .. n-1 per cycle, one value per 1/n
+function M.randrun(n)
+  return signal(function(t)
+    local rands = M.time_to_rands(t:floor():float() + 0.5, n)
+    local idx = {}
+    for i = 1, n do idx[i] = i end
+    table.sort(idx, function(a, b)                 -- stable: ties keep their order
+      if rands[a] ~= rands[b] then return rands[a] < rands[b] end
+      return a < b
+    end)
+    local i = (t:cycle_pos() * n):floor():int() % n
+    return idx[i + 1] - 1
+  end):_segment(n)
+end
+
+local function rearrange_with(ipat, n, pat)
+  local pats = {}
+  for i = 0, n - 1 do
+    pats[i + 1] = pat:_zoom(Fraction.of(i, n), Fraction.of(i + 1, n)):_repeatCycles(n):_fast(n)
+  end
+  return ipat:fmap(function(i) return pats[i + 1] end):inner_join()
+end
+register("shuffle", 1, function(n, pat) return rearrange_with(M.randrun(n), n, pat) end)
+register("scramble", 1, function(n, pat) return rearrange_with(M.irand_raw(n):_segment(n), n, pat) end)
+
+-- choose: the values are picked by a (continuous) pattern; xs is a Lua list
+function M.choose(...) return M.choose_with(M.rand, { ... }) end
+function M.choose_in(...) return M.choose_in_with(M.rand, { ... }) end
+function M.choose_cycles(...) return M.choose_in_with(M.rand:_segment(1), { ... }) end
+function Pattern:choose(...) return M.choose_with(self, { ... }) end
+function Pattern:choose2(...) return M.choose_with(self:from_bipolar(), { ... }) end
+
+-- weighted choice: pairs = { {value, weight}, ... }  (values and weights may be patterns)
+local function wchoose_with_raw(pat, pairs_)
+  local values, weights = {}, {}
+  local total = pure(0)
+  for i, pr in ipairs(pairs_) do
+    values[i] = reify(pr[1])
+    total = total:add(pr[2])
+    weights[i] = total
+  end
+  -- sequenceP: a pattern of the list of all weights
+  local weightspat = pure({})
+  for _, w in ipairs(weights) do
+    weightspat = weightspat:bind(function(list)
+      return w:fmap(function(v) local nl = { table.unpack(list) }; nl[#nl + 1] = v; return nl end)
+    end)
+  end
+  local function match(r)
+    local findpat = total:mul(r)
+    return weightspat:fmap(function(ws)
+      return function(find)
+        for i, x in ipairs(ws) do if x > find then return values[i] end end
+        return nil
+      end
+    end):app_left(findpat)
+  end
+  return pat:bind(match)
+end
+function M.wchoose_with(pat, pairs_) return wchoose_with_raw(pat, pairs_):outer_join() end
+function M.wchoose(...) return M.wchoose_with(M.rand, { ... }) end
+function M.wchoose_cycles(...) return wchoose_with_raw(M.rand:_segment(1), { ... }):inner_join() end
+
+-- smooth noise
+local function rand_at(t) return M.time_to_rands(t, 1)[1] end
+M.perlin = signal(function(t)
+  local tf = t:float()
+  local ta = math.floor(tf)
+  local x = tf - ta
+  local smoother = 6.0 * x ^ 5 - 15.0 * x ^ 4 + 10.0 * x ^ 3
+  local ra, rb = rand_at(ta), rand_at(ta + 1)
+  return ra + smoother * (rb - ra)
+end)
+M.berlin = signal(function(t)
+  local tf = t:float()
+  local a = math.floor(tf)
+  local bottom = rand_at(a)
+  local top = bottom + rand_at(a + 1)
+  return (bottom + (tf - a) * (top - bottom)) / 2
+end)
 
 return M

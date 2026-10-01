@@ -9,6 +9,10 @@ local P = require("strudel.pattern")
 local Fraction = require("strudel.fraction")
 local Sig = require("strudel.signal")
 require("strudel.library")
+local Lib = require("strudel.library")
+require("strudel.tonal")
+local Slice = require("strudel.slicing")
+local Pick = require("strudel.pick")
 local C = require("strudel.controls")
 local Mini = require("strudel.mini")
 
@@ -173,7 +177,20 @@ local function parse(src)
         expect("]")
         return { k = "array", items = items, line = t.line }
       end
-      if t.v == "{" then err("object literals are not supported") end
+      if t.v == "{" then
+        p = p + 1
+        local fields = {}
+        while not is("}") do
+          local k = cur()
+          if k.t ~= "id" and k.t ~= "str" and k.t ~= "num" then err("expected a name in the object") end
+          p = p + 1
+          expect(":")
+          fields[#fields + 1] = { key = k.v, e = parse_expr() }
+          if not accept(",") then break end
+        end
+        expect("}")
+        return { k = "object", fields = fields, line = t.line }
+      end
     end
     err("unexpected '" .. tostring(t.v) .. "'")
   end
@@ -294,15 +311,27 @@ local function make_globals()
   G.stack = function(...) return P.stack(...) end
   G.cat, G.slowcat = P.slowcat, P.slowcat
   G.fastcat, G.seq, G.sequence = P.fastcat, P.fastcat, P.fastcat
-  G.timeCat, G.timecat = function(...)
+  G.timeCat = function(...)
     local pairs_ = {}
     for i, a in ipairs({ ... }) do pairs_[i] = a end
     return P.timecat(pairs_)
-  end, nil
+  end
   G.timecat = G.timeCat
   G.sine, G.cosine, G.saw, G.isaw, G.square, G.tri, G.rand = Sig.sine, Sig.cosine, Sig.saw, Sig.isaw, Sig.square, Sig.tri, Sig.rand
   G.sine2, G.saw2, G.rand2 = Sig.sine2, Sig.saw2, Sig.rand2
   G.irand, G.run = Sig.irand, Sig.run
+  -- 0.2 globals (all of them exist in Strudel)
+  G.stepcat, G.arrange, G.polymeter = Lib.stepcat, Lib.arrange, Lib.polymeter
+  G.pm, G.polyrhythm, G.pr = Lib.polymeter, G.stack, G.stack
+  G.perlin, G.berlin = Sig.perlin, Sig.berlin
+  G.choose, G.chooseIn, G.chooseOut = Sig.choose, Sig.choose_in, Sig.choose
+  G.chooseWith = function(pat, xs) return Sig.choose_with(P.reify(pat), xs) end
+  G.chooseInWith = function(pat, xs) return Sig.choose_in_with(P.reify(pat), xs) end
+  G.chooseCycles, G.randcat = Sig.choose_cycles, Sig.choose_cycles
+  G.wchoose = Sig.wchoose
+  G.wchooseCycles, G.wrandcat = Sig.wchoose_cycles, Sig.wchoose_cycles
+  G.squeeze = Slice.squeeze
+  G.pick, G.pickmod = Pick.pick, Pick.pickmod
   G.rev = function(p) return P.api.rev(P.reify(p)) end
   G.mini = function(s) return Mini.mini(s) end
   G.id = function(x) return x end
@@ -367,6 +396,14 @@ local function evaluate(prog, opts)
       local items = {}
       for i, it in ipairs(node.items) do items[i] = eval(it, scope) end
       return P.list(items)
+    elseif k == "object" then
+      local o = {}
+      for _, f in ipairs(node.fields) do
+        local key = f.key
+        if type(key) == "number" and key == math.floor(key) then key = string.format("%d", key) end
+        o[tostring(key)] = eval(f.e, scope)
+      end
+      return P.obj(o)
     elseif k == "neg" then
       local v = eval(node.e, scope)
       if type(v) ~= "number" then fail(node, "cannot negate a non-number") end

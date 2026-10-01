@@ -87,6 +87,16 @@ function App:freeze_all() self.cfg.mode = "frozen"; self.pending_t = nil; self:s
 function App:go_live() self.cfg.mode = "live"; self.last_sig = nil; self.last_count = -1; self:save(); self.msg = nil end
 function App:render_now() self.force = true end
 function App:set_follow(on) self.cfg.follow = on and true or false; RA.save_prefs(self.cfg) end
+-- "Standard drum aliases": sd rim lt mt ht cr rd cb perc (folder lookup and General MIDI drums). Global, off by default.
+function App:set_aliases(on) self.cfg.aliases = on and true or false; RA.save_prefs(self.cfg); self.last_count = -1 end
+-- the note at which a sample plays unchanged when a pattern uses note(...) (Strudel: 36 = c2). Accepts 36 or a note name.
+function App:set_root_note(text)
+  local n = tonumber(text) or Strudel.Controls.note_to_midi((tostring(text or ""):gsub("%s", "")))
+  if not n then self.err = "Root note: write a MIDI number (36) or a note name (c2)."; return false end
+  self.cfg.root_note = math.max(0, math.min(127, math.floor(n + 0.5)))
+  RA.save_prefs(self.cfg); self.last_count = -1; self.err = nil
+  return true
+end
 function App:show_root() RA.show_root() end
 
 function App:detach()
@@ -219,7 +229,8 @@ function App:evaluate(code)
 end
 
 function App:plan_for(p, tempo_fp)
-  local insig = Core.hex(table.concat({ p.code, p.mode, tostring(p.cycle_qn), Core.fmt(p.pos), Core.fmt(p.len), tempo_fp, self.gsig, self.cfg.root }, "\1"))
+  local insig = Core.hex(table.concat({ p.code, p.mode, tostring(p.cycle_qn), Core.fmt(p.pos), Core.fmt(p.len), tempo_fp, self.gsig, self.cfg.root,
+    tostring(self.cfg.aliases), tostring(self.cfg.root_note) }, "\1"))
   local c = self.plans[p.guid]
   if c and c.insig == insig then return c end
   c = { insig = insig }
@@ -230,7 +241,7 @@ function App:plan_for(p, tempo_fp)
     local qn0 = RA.qn_of(p.pos)
     local plan, err = Core.plan_pattern({
       guid = p.guid, name = p.name, layers = e.res.layers, mode = p.mode, groups = self.groups,
-      cycles = p.cycles, lenfn = RA.file_len,
+      cycles = p.cycles, lenfn = RA.file_len, aliases = self.cfg.aliases, root_note = self.cfg.root_note,
       timefn = function(cyc) return RA.time_of_qn(qn0 + cyc * p.cycle_qn) end,
     })
     if not plan then c.err = err
